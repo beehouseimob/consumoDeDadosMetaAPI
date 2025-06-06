@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import numpy as np
+import json
+import ast
 
 # --- Carregar variáveis do .env ---
 load_dotenv()
@@ -21,6 +24,26 @@ INSIGHT_FIELDS = (
     "campaign_id,campaign_name,reach,impressions,frequency,"
     "results,cost_per_result,spend,cpm,actions,cpc,date_start"
 )
+
+def extract_numeric_value(field):
+    """Extrai o valor numérico do campo results ou cost_per_result."""
+    try:
+        # O campo pode vir como lista de dict ou string, garantir lista de dict
+        if isinstance(field, str):
+            import ast
+            field = ast.literal_eval(field)
+        if isinstance(field, list) and len(field) > 0:
+            indicator_obj = field[0]  # Pega primeiro item
+            if "values" in indicator_obj and len(indicator_obj["values"]) > 0:
+                val = indicator_obj["values"][0].get("value")
+                try:
+                    # valor pode vir string, float com . ou , ou int
+                    return float(str(val).replace(",", "."))
+                except Exception:
+                    return val  # retorna bruto se não der pra converter
+    except Exception:
+        pass
+    return None  # Caso não consiga extrair
 
 # --- Gerar todos os períodos do ano por mês ---
 def get_month_ranges(year):
@@ -100,7 +123,23 @@ def upload_to_google_sheets(df, sheet_name, credentials_file):
         sheet = sh.sheet1
 
     sheet.clear()
-    sheet.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
+     # Converter as colunas numéricas antes de enviar
+    cols_numericas = ['reach', 'impressions', 'frequency', 'spend', 'cpm', 'cpc']
+    for col in cols_numericas:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.replace("'", "")
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    # Substituir NaN por string vazia para evitar erro de JSON
+    df = df.replace({np.nan: ""})
+
+        # 2. Converter objetos (dict/list) em string JSON
+    for col in df.columns:
+        df[col] = df[col].apply(lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else x)
+
+    # 3. Substituir NaN por ""
+    df = df.replace({np.nan: ""})
+
+    sheet.update([df.columns.values.tolist()] + df.values.tolist())
 
 # --- Execução principal ---
 if __name__ == "__main__":

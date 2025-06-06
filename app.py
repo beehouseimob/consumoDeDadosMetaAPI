@@ -8,6 +8,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import numpy as np
 import json
 import ast
+import time
 
 # --- Carregar variáveis do .env ---
 load_dotenv()
@@ -16,34 +17,13 @@ AD_ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID")
 API_VERSION = 'v23.0'
 SHEET_NAME = 'InsightsMeta'
 CREDENTIALS_FILE = './Credentials/arquivo-credenciais.json'
-YEAR = 2025
-
+YEAR = [2023,2024,2025]
 
 # --- Campos de interesse nos insights ---
 INSIGHT_FIELDS = (
     "campaign_id,campaign_name,reach,impressions,frequency,"
     "results,cost_per_result,spend,cpm,actions,cpc,date_start"
 )
-
-def extract_numeric_value(field):
-    """Extrai o valor numérico do campo results ou cost_per_result."""
-    try:
-        # O campo pode vir como lista de dict ou string, garantir lista de dict
-        if isinstance(field, str):
-            import ast
-            field = ast.literal_eval(field)
-        if isinstance(field, list) and len(field) > 0:
-            indicator_obj = field[0]  # Pega primeiro item
-            if "values" in indicator_obj and len(indicator_obj["values"]) > 0:
-                val = indicator_obj["values"][0].get("value")
-                try:
-                    # valor pode vir string, float com . ou , ou int
-                    return float(str(val).replace(",", "."))
-                except Exception:
-                    return val  # retorna bruto se não der pra converter
-    except Exception:
-        pass
-    return None  # Caso não consiga extrair
 
 # --- Gerar todos os períodos do ano por mês ---
 def get_month_ranges(year):
@@ -89,6 +69,51 @@ def fetch_campaign_insights(campaign_id, start_date, end_date):
     resposta.raise_for_status()
     return resposta.json().get('data', [])
 
+# --- Função para extrair o valor numérico ---
+import re
+import ast
+
+def extract_numeric_value(field):
+    """Extrai o valor numérico do campo results ou cost_per_result, mesmo em caso de string complexa."""
+    try:
+        if not field or str(field).strip() == "":
+            return None
+        # Se já é lista/dict, ok. Se string, tenta converter removendo parênteses extras
+        value_str = str(field).strip()
+        # Remove parênteses externos múltiplos, se existirem
+        value_str = re.sub(r'^[$$\s]*', '', value_str)
+        value_str = re.sub(r'[$$\s]*$', '', value_str)
+        if value_str and isinstance(field, str):
+            try:
+                obj = ast.literal_eval(value_str)
+            except Exception:
+                return None
+        else:
+            obj = field
+        # Analisa o objeto extraído
+        if isinstance(obj, list) and len(obj) > 0:
+            indicator_obj = obj[0]  # Primeiro item
+            if "values" in indicator_obj and len(indicator_obj["values"]) > 0:
+                val = indicator_obj["values"][0].get("value")
+                try:
+                    return float(str(val).replace(",", "."))
+                except Exception:
+                    return val
+    except Exception:
+        pass
+    return None
+
+def calcular_cliques(row):
+    try:
+        spend = float(row.get('spend', 0) or 0)
+        cpc = float(row.get('cpc', 0) or 0)
+        if cpc > 0:
+            return round(spend / cpc, 2)
+        else:
+            return 0
+    except Exception:
+        return 0
+
 # --- Consolidar dados ---
 def get_all_data(year):
     all_rows = []
@@ -123,20 +148,20 @@ def upload_to_google_sheets(df, sheet_name, credentials_file):
         sheet = sh.sheet1
 
     sheet.clear()
-     # Converter as colunas numéricas antes de enviar
-    cols_numericas = ['reach', 'impressions', 'frequency', 'spend', 'cpm', 'cpc']
+    # Converter as colunas numéricas antes de enviar
+    cols_numericas = ['reach', 'impressions', 'frequency', 'spend', 'cpm', 'cpc', 'results_value', 'cost_per_result_value']
     for col in cols_numericas:
         if col in df.columns:
             df[col] = df[col].astype(str).str.replace("'", "")
             df[col] = pd.to_numeric(df[col], errors='coerce')
     # Substituir NaN por string vazia para evitar erro de JSON
-    df = df.replace({np.nan: ""})
+    df = df.replace({np.nan: "0"})
 
-        # 2. Converter objetos (dict/list) em string JSON
+    # Converter objetos (dict/list) em string JSON
     for col in df.columns:
         df[col] = df[col].apply(lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else x)
 
-    # 3. Substituir NaN por ""
+    # Substituir NaN por ""
     df = df.replace({np.nan: ""})
 
     sheet.update([df.columns.values.tolist()] + df.values.tolist())
@@ -144,17 +169,37 @@ def upload_to_google_sheets(df, sheet_name, credentials_file):
 # --- Execução principal ---
 if __name__ == "__main__":
 
-    print(f"Iniciando extração do ano {YEAR}...")
+    start_time = time.time()
 
-    data = get_all_data(YEAR)
-    if data:
-        df = pd.DataFrame(data)
-        print(f"Dados coletados: {len(df)} registros.")
-        try:
-            print("Enviando para o Google Sheets...")
-            upload_to_google_sheets(df, SHEET_NAME, CREDENTIALS_FILE)
-            print("Concluído com sucesso! 🚀")
-        except Exception as e:
-            print(f"Erro ao enviar para o Sheets: {e}")
-    else:
-        print("Nenhum dado encontrado.")
+    index = len(YEAR)
+    i = 0
+    while(i<index):
+        print(f"Iniciando extração do ano {YEAR[i]}...")
+
+        data = get_all_data(YEAR[i])
+        if data:
+            df = pd.DataFrame(data)
+            # Extrai os valores numéricos das colunas
+            if "results" in df.columns:
+                df["results_value"] = df["results"].apply(extract_numeric_value)
+            if "cost_per_result" in df.columns:
+                df["cost_per_result_value"] = df["cost_per_result"].apply(extract_numeric_value)
+
+            # Calcular a coluna de cliques
+            df["cliques"] = df.apply(calcular_cliques, axis=1)
+
+            print(f"Dados coletados: {len(df)} registros.")
+            try:
+                print("Enviando para o Google Sheets...")
+                upload_to_google_sheets(df, SHEET_NAME, CREDENTIALS_FILE)
+                print("Concluído com sucesso! 🚀")
+            except Exception as e:
+                print(f"Erro ao enviar para o Sheets: {e}")
+        else:
+            print("Nenhum dado encontrado.")
+        
+    end_time = time.time()
+    elapsed = end_time - start_time
+    minutos = int(elapsed // 60)
+    segundos = int(elapsed % 60)
+    print(f"Tempo total de execução: {minutos} min {segundos} s")

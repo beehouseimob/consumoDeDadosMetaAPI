@@ -170,36 +170,37 @@ def upload_to_google_sheets(df, sheet_name, credentials_file):
 if __name__ == "__main__":
 
     start_time = time.time()
+    all_data = []
 
-    index = len(YEAR)
-    i = 0
-    while(i<index):
-        print(f"Iniciando extração do ano {YEAR[i]}...")
-
-        data = get_all_data(YEAR[i])
+    for y in YEAR:
+        print(f"Iniciando extração do ano {y}...")
+        data = get_all_data(y)
         if data:
-            df = pd.DataFrame(data)
-            # Extrai os valores numéricos das colunas
-            if "results" in df.columns:
-                df["results_value"] = df["results"].apply(extract_numeric_value)
-            if "cost_per_result" in df.columns:
-                df["cost_per_result_value"] = df["cost_per_result"].apply(extract_numeric_value)
-
-            # Calcular a coluna de cliques
-            df["cliques"] = df.apply(calcular_cliques, axis=1)
-
-            print(f"Dados coletados: {len(df)} registros.")
-            try:
-                print("Enviando para o Google Sheets...")
-                upload_to_google_sheets(df, SHEET_NAME, CREDENTIALS_FILE)
-                print("Concluído com sucesso! 🚀")
-            except Exception as e:
-                print(f"Erro ao enviar para o Sheets: {e}")
+            all_data.extend(data)
         else:
-            print("Nenhum dado encontrado.")
-        
+            print(f"Nenhum dado encontrado para {y}.")
+
+    if all_data:
+        df = pd.DataFrame(all_data)
+        # Extrai os valores numéricos das colunas
+        if "results" in df.columns:
+            df["results_value"] = df["results"].apply(extract_numeric_value)
+        if "cost_per_result" in df.columns:
+            df["cost_per_result_value"] = df["cost_per_result"].apply(extract_numeric_value)
+        # Calcular a coluna de cliques
+        df["cliques"] = df.apply(calcular_cliques, axis=1)
+
+        print(f"Dados coletados: {len(df)} registros.")
+        try:
+            print("Enviando para o Google Sheets...")
+            upload_to_google_sheets(df, SHEET_NAME, CREDENTIALS_FILE)
+            print("Concluído com sucesso! 🚀")
+        except Exception as e:
+            print(f"Erro ao enviar para o Sheets: {e}")
+    else:
+        print("Nenhum dado encontrado para nenhum ano.")
+
     end_time = time.time()
-    elapsed = end_time - start_time
-    minutos = int(elapsed // 60)
-    segundos = int(elapsed % 60)
+    minutos = int((end_time - start_time) // 60)
+    segundos = int((end_time - start_time) % 60)
     print(f"Tempo total de execução: {minutos} min {segundos} s")

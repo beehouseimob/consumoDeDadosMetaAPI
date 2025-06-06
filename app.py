@@ -17,18 +17,17 @@ AD_ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID")
 API_VERSION = 'v23.0'
 SHEET_NAME = 'InsightsMeta'
 CREDENTIALS_FILE = './Credentials/arquivo-credenciais.json'
-YEAR = [2023,2024,2025]
+YEAR = [2025]
 
 # --- Campos de interesse nos insights ---
 INSIGHT_FIELDS = (
-    "campaign_id,campaign_name,reach,impressions,frequency,"
-    "results,cost_per_result,spend,cpm,actions,cpc,date_start"
+    "campaign_name,reach,impressions,frequency,results,cost_per_result,spend,cpm,cpc,date_start"
 )
 
 # --- Gerar todos os períodos do ano por mês ---
 def get_month_ranges(year):
     month_ranges = []
-    for month in range(1, 13):
+    for month in range(6, 13):
         first = datetime(year, month, 1)
         if month == 12:
             last = datetime(year+1, 1, 1) - timedelta(days=1)
@@ -63,6 +62,7 @@ def fetch_campaign_insights(campaign_id, start_date, end_date):
         "time_range[since]": start_date,
         "time_range[until]": end_date,
         "time_increment": 1,
+        "breakdowns":"age,gender",
         "limit": 100
     }
     resposta = requests.get(url, params=params, timeout=30)

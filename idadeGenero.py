@@ -9,26 +9,25 @@ import numpy as np
 import json
 import ast
 import time
-import re
 
 # --- Carregar variáveis do .env ---
 load_dotenv()
 ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")
 AD_ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID")
 API_VERSION = 'v23.0'
-SHEET_NAME = 'InsightsMeta'
+SHEET_NAME = 'InsightsMeta_Demograficos'
 CREDENTIALS_FILE = './Credentials/arquivo-credenciais.json'
-YEAR = [2025]
+YEAR = [2023,2024,2025]
 
 # --- Campos de interesse nos insights ---
 INSIGHT_FIELDS = (
-    "campaign_name,reach,impressions,frequency,results,cost_per_result,spend,cpm,cpc,date_start"
+    "campaign_name,reach,impressions,frequency,results,cost_per_result,spend,date_start"
 )
 
 # --- Gerar todos os períodos do ano por mês ---
 def get_month_ranges(year):
     month_ranges = []
-    for month in range(6, 13):
+    for month in range(1, 13):
         first = datetime(year, month, 1)
         if month == 12:
             last = datetime(year+1, 1, 1) - timedelta(days=1)
@@ -63,6 +62,7 @@ def fetch_campaign_insights(campaign_id, start_date, end_date):
         "time_range[since]": start_date,
         "time_range[until]": end_date,
         "time_increment": 1,
+        "breakdowns":"age,gender",
         "limit": 100
     }
     resposta = requests.get(url, params=params, timeout=30)
@@ -70,6 +70,8 @@ def fetch_campaign_insights(campaign_id, start_date, end_date):
     return resposta.json().get('data', [])
 
 # --- Função para extrair o valor numérico ---
+import re
+import ast
 
 def extract_numeric_value(field):
     """Extrai o valor numérico do campo results ou cost_per_result, mesmo em caso de string complexa."""
@@ -142,7 +144,7 @@ def upload_to_google_sheets(df, sheet_name, credentials_file):
         sheet = gc.open(sheet_name).sheet1
     except gspread.SpreadsheetNotFound:
         sh = gc.create(sheet_name)
-        sh.share("beehousemkt@gmail.com", perm_type="user", role="writer")
+        sh.share("<seuemail>@gmail.com", perm_type="user", role="writer")
         sheet = sh.sheet1
 
     sheet.clear()

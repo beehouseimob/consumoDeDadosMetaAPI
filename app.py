@@ -28,7 +28,7 @@ INSIGHT_FIELDS = (
 # --- Gerar todos os períodos do ano por mês ---
 def get_month_ranges(year):
     month_ranges = []
-    for month in range(6, 13):
+    for month in range(1, 13):
         first = datetime(year, month, 1)
         if month == 12:
             last = datetime(year+1, 1, 1) - timedelta(days=1)
@@ -63,6 +63,7 @@ def fetch_campaign_insights(campaign_id, start_date, end_date):
         "time_range[since]": start_date,
         "time_range[until]": end_date,
         "time_increment": 1,
+        "breakdown": 'date_start',
         "limit": 100
     }
     resposta = requests.get(url, params=params, timeout=30)
@@ -111,6 +112,64 @@ def calcular_cliques(row):
             return 0
     except Exception:
         return 0
+    
+# --- Função para extrair o valor do indicador ---
+def extract_indicator(field):
+    """
+    Extrai o valor do 'indicator' do campo results e o formata para ser mais intuitivo.
+    """
+    try:
+        if not field or str(field).strip() == "":
+            return None
+
+        # Tenta converter a string para um objeto Python (lista de dicionários)
+        obj = ast.literal_eval(str(field))
+
+        # Verifica se é uma lista e se não está vazia
+        if isinstance(obj, list) and len(obj) > 0:
+            # Pega o primeiro dicionário da lista, que contém o 'indicator'
+            indicator_obj = obj[0]
+            if "indicator" in indicator_obj:
+                raw_indicator = indicator_obj["indicator"]
+
+                # --- Regras de formatação específicas (as mais prioritárias) ---
+                if raw_indicator == "video_thruplay_watched_actions":
+                    return "thruplay"
+                elif raw_indicator == "actions:onsite_conversion.lead_grouped":
+                    return "lead"
+                elif raw_indicator == "link_click":
+                    return "clique no link"
+                elif raw_indicator == "page_engagement":
+                    return "engajamento com a página"
+                # Adicione mais regras específicas aqui se precisar de transformações exatas para outros indicadores
+
+                # --- Regras de formatação genéricas (aplicadas se as específicas acima não se encaixarem) ---
+                # Ex: "actions:onsite_conversion.purchase_grouped" -> "purchase"
+                # Ex: "post_reaction" -> "post_reaction" (não muda)
+                if ":" in raw_indicator:
+                    parts_after_colon = raw_indicator.split(':', 1)[1]
+                    if '.' in parts_after_colon:
+                        # Pega a última parte após o último ponto
+                        formatted_indicator = parts_after_colon.split('.')[-1]
+                        # Remove "_grouped" se existir
+                        if formatted_indicator.endswith("_grouped"):
+                            return formatted_indicator.replace("_grouped", "")
+                        return formatted_indicator
+                    else:
+                        # Se não há ponto após o dois pontos, pega a parte após o dois pontos
+                        return parts_after_colon
+                
+                # Ex: "app_install_grouped" -> "app_install"
+                if raw_indicator.endswith("_grouped"):
+                    return raw_indicator.replace("_grouped", "")
+
+                # Se nenhuma regra específica ou genérica se aplicou, retorna o valor original
+                return raw_indicator
+
+    except Exception:
+        # Em caso de qualquer erro na extração ou formatação, retorna None
+        pass
+    return None
 
 # --- Consolidar dados ---
 def get_all_data(year):
@@ -183,6 +242,7 @@ if __name__ == "__main__":
         # Extrai os valores numéricos das colunas
         if "results" in df.columns:
             df["results_value"] = df["results"].apply(extract_numeric_value)
+            df["indicator_value"] = df["results"].apply(extract_indicator)
         if "cost_per_result" in df.columns:
             df["cost_per_result_value"] = df["cost_per_result"].apply(extract_numeric_value)
         # Calcular a coluna de cliques
